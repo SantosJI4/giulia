@@ -29,31 +29,66 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 let latestQr = null;
 let clientReady = false;
+let client = null;
 
-const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '..', 'data', 'auth') }),
-  restartOnAuthFail: true,
-  puppeteer: {
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--window-size=1280,800',
-      '--disable-extensions',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-networking',
-      '--disable-sync',
-      '--disable-features=TranslateUI'
-    ],
-    executablePath: process.env.CHROME_PATH || undefined,
-    timeout: 120000
-  }
-});
+function createClient() {
+  const options = {
+    authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '..', 'data', 'auth') }),
+    restartOnAuthFail: true,
+    // Cache da versão do WhatsApp Web para reduzir quebras em injeção
+    webVersionCache: {
+      type: 'remote',
+      remotePath:
+        'https://raw.githubusercontent.com/adiwajshing/whatsapp-web.js/refs/heads/main/src/whatsapp-web-version.json'
+    },
+    puppeteer: {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--window-size=1280,800',
+        '--disable-extensions',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--disable-features=TranslateUI',
+        '--hide-scrollbars',
+        '--disable-accelerated-2d-canvas'
+      ],
+      executablePath: process.env.CHROME_PATH || undefined,
+      timeout: 120000
+    }
+  };
+  const c = new Client(options);
 
-client.on('qr', async (qr) => {
+  // Bind events para o cliente recém criado
+  bindClientEvents(c);
+  return c;
+}
+
+async function recreateClient(delayMs = 2000) {
+  clientReady = false;
+  try {
+    if (client) {
+      await client.destroy().catch(() => {});
+    }
+  } catch {}
+  setTimeout(() => {
+    try {
+      console.log('Recriando cliente WhatsApp...');
+      client = createClient();
+      client.initialize();
+    } catch (e) {
+      console.error('Falha ao recriar cliente:', e?.message || e);
+    }
+  }, delayMs);
+}
+
+function bindClientEvents(c) {
+  c.on('qr', async (qr) => {
   // Print ASCII QR in terminal
   try { qrcodeTerminal.generate(qr, { small: true }); } catch {}
   // Save PNG for download
@@ -64,40 +99,57 @@ client.on('qr', async (qr) => {
     console.warn('Falha ao salvar QR.png:', e?.message || e);
   }
   latestQr = await qrcode.toDataURL(qr);
-  clientReady = false;
-  console.log('QR atualizado. Acesse /qr para escanear.');
-});
+    clientReady = false;
+    console.log('QR atualizado. Acesse /qr para escanear.');
+  });
 
-client.on('ready', () => {
-  clientReady = true;
-  console.log('Bot conectado e pronto!');
-  initScheduler(client);
-  console.log('Agendador de notificações iniciado.');
-});
+  c.on('ready', () => {
+    clientReady = true;
+    console.log('Bot conectado e pronto!');
+    initScheduler(c);
+    console.log('Agendador de notificações iniciado.');
+  });
 
-client.on('disconnected', (reason) => {
-  clientReady = false;
-  console.warn('Cliente desconectado:', reason, 'reinicializando...');
-  setTimeout(() => client.initialize(), 2000);
-});
+  c.on('disconnected', (reason) => {
+    clientReady = false;
+    console.warn('Cliente desconectado:', reason, 'reciclando cliente...');
+    // Reciclar totalmente o cliente para evitar loops com contexto destruído
+    recreateClient(2000);
+  });
 
-client.on('auth_failure', (msg) => {
-  console.error('Falha de autenticação:', msg);
-});
+  c.on('auth_failure', (msg) => {
+    console.error('Falha de autenticação:', msg);
+  });
 
-// Reinitialize on generic client errors (e.g., Puppeteer context destroyed)
-client.on('error', (err) => {
-  console.error('Erro no cliente WhatsApp:', err?.message || err);
-  clientReady = false;
-  setTimeout(() => {
-    try {
-      console.log('Tentando reinicializar cliente após erro...');
-      client.initialize();
-    } catch (e) {
-      console.error('Falha ao reinicializar cliente:', e?.message || e);
+  // Erros genéricos do cliente (inclui contexto destruído)
+  c.on('error', (err) => {
+    const msg = err?.message || String(err || 'erro desconhecido');
+    console.error('Erro no cliente WhatsApp:', msg);
+    clientReady = false;
+    // Para erros típicos de Puppeteer, recriar o cliente é mais seguro
+    if (/Execution context was destroyed|Target closed|Protocol error/i.test(msg)) {
+      recreateClient(3000);
+    } else {
+      // fallback simples
+      setTimeout(() => {
+        try {
+          console.log('Tentando reinicializar cliente após erro...');
+          c.initialize();
+        } catch (e) {
+          console.error('Falha ao reinicializar cliente:', e?.message || e);
+          recreateClient(3000);
+        }
+      }, 3000);
     }
-  }, 3000);
-});
+  });
+
+  c.on('change_state', (state) => {
+    console.log('Estado do cliente:', state);
+  });
+  c.on('loading_screen', (percent, message) => {
+    console.log('Carregando WhatsApp Web:', percent, message);
+  });
+}
 
 client.on('message', async msg => {
   try {
@@ -120,6 +172,8 @@ client.on('message', async msg => {
   }
 });
 
+// Criar e inicializar o primeiro cliente
+client = createClient();
 client.initialize();
 
 app.get('/api/qr', (req, res) => {
