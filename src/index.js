@@ -149,28 +149,27 @@ function bindClientEvents(c) {
   c.on('loading_screen', (percent, message) => {
     console.log('Carregando WhatsApp Web:', percent, message);
   });
-}
-
-client.on('message', async msg => {
-  try {
-    const phone = msg.from.split('@')[0];
-    const body = msg.body.trim();
-    if (body.startsWith('!')) {
-      const response = await dispatchCommand(phone, body);
-      if (typeof response === 'string') {
-        await msg.reply(response);
-      } else if (response && response.media) {
-        const media = new MessageMedia(response.mimetype, response.data, response.filename);
-        await msg.reply(media, undefined, { caption: response.caption });
-      } else {
-        await msg.reply('⚠️ Resposta desconhecida.');
+  c.on('message', async msg => {
+    try {
+      const phone = msg.from.split('@')[0];
+      const body = msg.body.trim();
+      if (body.startsWith('!')) {
+        const response = await dispatchCommand(phone, body);
+        if (typeof response === 'string') {
+          await msg.reply(response);
+        } else if (response && response.media) {
+          const media = new MessageMedia(response.mimetype, response.data, response.filename);
+          await msg.reply(media, undefined, { caption: response.caption });
+        } else {
+          await msg.reply('⚠️ Resposta desconhecida.');
+        }
       }
+    } catch (e) {
+      console.error('Erro ao processar mensagem', e);
+      msg.reply('⚠️ Ocorreu um erro interno. Tente novamente.');
     }
-  } catch (e) {
-    console.error('Erro ao processar mensagem', e);
-    msg.reply('⚠️ Ocorreu um erro interno. Tente novamente.');
-  }
-});
+  });
+}
 
 // Criar e inicializar o primeiro cliente
 client = createClient();
