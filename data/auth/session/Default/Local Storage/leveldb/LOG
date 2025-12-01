@@ -1,0 +1,6 @@
+2025/12/01-12:05:41.585 4918 Reusing MANIFEST C:\Users\Maurício Santana\Downloads\workspace\data\auth\session\Default\Local Storage\leveldb/MANIFEST-000001
+2025/12/01-12:05:41.670 4918 Recovering log #3
+2025/12/01-12:05:41.684 4918 Reusing old log C:\Users\Maurício Santana\Downloads\workspace\data\auth\session\Default\Local Storage\leveldb/000003.log 
+2025/12/01-12:26:21.722 4918 Level-0 table #5: started
+2025/12/01-12:26:21.847 4918 Level-0 table #5: 18005 bytes OK
+2025/12/01-12:26:21.865 4918 Delete type=0 #3

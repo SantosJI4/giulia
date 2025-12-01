@@ -1,0 +1,22 @@
+{
+  "name": "whatsapp-bot-sinais2025",
+  "version": "1.0.0",
+  "description": "Bot de WhatsApp para gerenciamento de salários, gastos, horas extras e folgas com personalidade.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "moment": "^2.29.4",
+    "qrcode": "^1.5.3",
+    "qrcode-terminal": "^0.12.0",
+    "pdfkit": "^0.15.0",
+    "socket.io": "^4.7.5",
+    "sqlite3": "^5.1.7",
+    "whatsapp-web.js": "^1.24.0",
+    "node-cron": "^3.0.3",
+    "googleapis": "^131.0.0"
+  }
+}

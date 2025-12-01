@@ -1,0 +1,3 @@
+[1201/114440.658:WARNING:resource_bundle.cc(450)] locale_file_path.empty() for locale 
+[1201/114440.660:ERROR:resource_bundle.cc(991)] Failed to load C:\Users\Maurício Santana\Downloads\workspace\node_modules\puppeteer-core\.local-chromium\win64-1045629\chrome-win\resources.pak
+Some features may not be available.

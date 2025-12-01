@@ -1,0 +1,13 @@
+2025/12/01-11:58:52.530 1d2c Reusing MANIFEST C:\Users\Maurício Santana\Downloads\workspace\data\auth\session\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/12/01-11:58:52.531 1d2c Recovering log #79
+2025/12/01-11:58:52.686 1d2c Reusing old log C:\Users\Maurício Santana\Downloads\workspace\data\auth\session\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000079.log 
+2025/12/01-11:58:52.686 1d2c Delete type=0 #75
+2025/12/01-11:58:52.687 1d2c Delete type=2 #77
+2025/12/01-11:59:03.194 2904 Level-0 table #84: started
+2025/12/01-11:59:03.421 2904 Level-0 table #84: 813885 bytes OK
+2025/12/01-11:59:03.423 2904 Delete type=0 #79
+2025/12/01-11:59:03.446 2904 Manual compaction at level-0 from '\x00&\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00'\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/12/01-11:59:03.666 33ac Compacting 1@1 + 1@2 files
+2025/12/01-11:59:04.073 33ac Generated table #85@1: 20316 keys, 954271 bytes
+2025/12/01-11:59:04.073 33ac Compacted 1@1 + 1@2 files => 954271 bytes
+2025/12/01-11:59:04.077 33ac compacted to: files[ 0 0 1 0 0 0 0 ]

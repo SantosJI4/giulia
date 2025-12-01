@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <title>Scan QR - WhatsApp Bot</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; background:#0f172a; color:#f1f5f9; display:flex; flex-direction:column; align-items:center; padding:2rem; }
+    .box { background:#1e293b; padding:1.5rem 2rem; border-radius:12px; box-shadow:0 4px 24px rgba(0,0,0,.4); max-width:480px; width:100%; }
+    h1 { margin-top:0; }
+    img { width:100%; max-width:320px; background:#fff; padding:.75rem; border-radius:8px; }
+    .status { margin:.75rem 0; font-weight:600; }
+    footer { margin-top:2rem; font-size:.8rem; opacity:.7; }
+    .pulse { animation:pulse 1.2s infinite; }
+    @keyframes pulse { 0% { opacity:.4 } 50% { opacity:1 } 100% { opacity:.4 } }
+    a { color:#38bdf8; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Conectar Bot WhatsApp</h1>
+    <p>Escaneie o QR abaixo com o WhatsApp para iniciar.</p>
+    <div id="area"></div>
+    <div class="status" id="status">Carregando QR...</div>
+    <button id="refresh">Atualizar Agora</button>
+    <p style="font-size:.85rem;">Se demorar, clique em atualizar. Ao conectar esta página mostrará status pronto.</p>
+  </div>
+  <footer>Bot SINAIS2025 • Local somente • Dados persistem em SQLite</footer>
+<script>
+let timer;
+async function fetchQR() {
+  let data;
+  try {
+    const res = await fetch('/api/qr');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    data = await res.json();
+  } catch (e) {
+    const area = document.getElementById('area');
+    const status = document.getElementById('status');
+    area.innerHTML = '<div class="pulse">Erro ao carregar QR.</div>';
+    status.textContent = 'Falha ao consultar /api/qr: ' + (e.message||e);
+    return;
+  }
+  const area = document.getElementById('area');
+  const status = document.getElementById('status');
+  if (data.status === 'ready') {
+    area.innerHTML = '<div style="font-size:3rem">✅</div>';
+    status.textContent = 'Bot conectado!';
+    if (timer) clearInterval(timer);
+  } else if (data.status === 'scan') {
+    area.innerHTML = `<img src="${data.dataUrl}" alt="QR Code" />`;
+    status.textContent = 'Escaneie com seu WhatsApp';
+  } else if (data.status === 'pending') {
+    area.innerHTML = '<div class="pulse">Gerando QR...</div>';
+    status.textContent = 'Aguardando geração do QR';
+  } else {
+    status.textContent = 'Status desconhecido';
+  }
+}
+fetchQR();
+timer = setInterval(fetchQR, 6000);
+refresh.onclick = fetchQR;
+</script>
+</body>
+</html>

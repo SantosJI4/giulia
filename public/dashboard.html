@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<title>Dashboard Financeiro - Bot</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  body { font-family: system-ui, Arial, sans-serif; margin:0; background:#0f172a; color:#f1f5f9; }
+  header { padding:1rem 1.5rem; background:#1e293b; display:flex; align-items:center; justify-content:space-between; }
+  h1 { font-size:1.2rem; margin:0; }
+  main { padding:1rem 1.5rem; }
+  table { border-collapse: collapse; width:100%; margin-top:1rem; }
+  th, td { padding:.55rem .6rem; text-align:left; font-size:.85rem; }
+  th { background:#1e293b; position:sticky; top:0; z-index:1; }
+  tr:nth-child(even) td { background:#132031; }
+  tr:nth-child(odd) td { background:#182a3f; }
+  .ok { color:#22c55e; }
+  .warn { color:#eab308; }
+  .bad { color:#ef4444; }
+  .chip { display:inline-block; padding:.2rem .45rem; border-radius:6px; font-size:.65rem; letter-spacing:.5px; font-weight:600; }
+  .chip-net-pos { background:#065f46; color:#d1fae5; }
+  .chip-net-neg { background:#7f1d1d; color:#fecaca; }
+  footer { font-size:.65rem; opacity:.55; text-align:center; margin-top:2rem; }
+  #refresh { background:#2563eb; color:#fff; border:none; padding:.5rem .9rem; border-radius:6px; cursor:pointer; font-weight:600; }
+  #refresh:hover { background:#1d4ed8; }
+  #status { font-size:.7rem; opacity:.7; margin-left:.75rem; }
+  .layout { display:grid; gap:1rem; }
+  @media (min-width:900px){ .layout { grid-template-columns:2fr 1fr; } }
+  .panel { background:#1e293b; padding:1rem 1rem .75rem; border-radius:12px; box-shadow:0 4px 24px rgba(0,0,0,.35); }
+  canvas { width:100% !important; height:300px !important; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+<header>
+  <h1>Dashboard Financeiro em Tempo Real</h1>
+  <div>
+    <button id="refresh">Atualizar</button><span id="status">live</span>
+  </div>
+</header>
+<main>
+  <div class="layout">
+    <div class="panel">
+      <h2 style="margin:.2rem 0 .75rem;font-size:1rem;">Usuários</h2>
+      <div style="overflow:auto; max-height:420px;">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>Telefone</th>
+              <th>Salário</th>
+              <th>Gastos</th>
+              <th>%Gasto</th>
+              <th>Horas+Valor Extra</th>
+              <th>Folgas</th>
+              <th>Banco Folgas</th>
+              <th>Meta</th>
+              <th>Saldo</th>
+              <th>Alertas</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2 style="margin:.2rem 0 .75rem;font-size:1rem;">Distribuição de Gastos (%)</h2>
+      <canvas id="chartGastos"></canvas>
+      <h2 style="margin:1.25rem 0 .75rem;font-size:1rem;">Saldo Líquido</h2>
+      <canvas id="chartSaldo"></canvas>
+    </div>
+    <div class="panel">
+      <h2 style="margin:.2rem 0 .75rem;font-size:1rem;">Mensagens</h2>
+      <div id="msgs" style="min-height:80px; font-size:.95rem;"></div>
+    </div>
+  </div>
+  <footer>Atualizações em tempo real via Socket.IO • Gerado pelo Bot Giulia</footer>
+</main>
+<script>
+const fmt = v => 'R$ ' + (v||0).toFixed(2);
+let gastoChart, saldoChart;
+function classifyPct(p){ if(p < 40) return 'ok'; if(p < 70) return 'warn'; return 'bad'; }
+function chipNet(v){ return `<span class="chip ${v>=0?'chip-net-pos':'chip-net-neg'}">${fmt(v)}</span>`; }
+function buildRow(r){
+  const alertFlags = [];
+  if(r.max_expense_percent && r.expensePct >= r.max_expense_percent) alertFlags.push('%');
+  if(r.max_expense_value && r.expense >= r.max_expense_value) alertFlags.push('VAL');
+  const hourly = r.salary ? r.salary/220 : 0;
+  const overtimeValue = r.overtime * hourly;
+  return `<tr>
+    <td>${r.phone}</td>
+    <td>${fmt(r.salary)}</td>
+    <td>${fmt(r.expense)}</td>
+    <td class="${classifyPct(r.expensePct)}">${r.expensePct.toFixed(1)}%</td>
+    <td>${r.overtime.toFixed(1)}h (${fmt(overtimeValue)})</td>
+    <td>${r.leave}</td>
+    <td>${(r.leaveBank||0).toFixed(0)}d</td>
+    <td>${r.target_income?fmt(r.target_income):'-'}</td>
+    <td>${chipNet(r.net)}</td>
+    <td>${alertFlags.length?alertFlags.join(','):'-'}</td>
+  </tr>`;
+}
+async function fetchStats(){
+  const res = await fetch('/api/stats');
+  const json = await res.json();
+  render(json.data||[]);
+}
+function render(data){
+  const tbody = document.querySelector('#tbl tbody');
+  tbody.innerHTML = data.map(buildRow).join('');
+  const gastosData = data.map(d=> d.expensePct);
+  const labels = data.map(d=> d.phone);
+  if(!gastoChart){
+    gastoChart = new Chart(document.getElementById('chartGastos'), { type:'bar', data:{ labels, datasets:[{ label:'% Gastos', data:gastosData, backgroundColor:'#38bdf8' }] }, options:{ scales:{ y:{ beginAtZero:true, max:100 } } } });
+  } else { gastoChart.data.labels = labels; gastoChart.data.datasets[0].data = gastosData; gastoChart.update(); }
+  const saldoData = data.map(d=> d.net);
+  if(!saldoChart){
+    saldoChart = new Chart(document.getElementById('chartSaldo'), { type:'line', data:{ labels, datasets:[{ label:'Saldo Líquido', data:saldoData, borderColor:'#4ade80', backgroundColor:'rgba(74,222,128,.2)', tension:.25 }] }, options:{ responsive:true } });
+  } else { saldoChart.data.labels = labels; saldoChart.data.datasets[0].data = saldoData; saldoChart.update(); }
+  buildMessages(data);
+}
+refresh.onclick = fetchStats;
+const socket = io();
+socket.on('stats', rows => {
+  document.getElementById('status').textContent = 'live';
+  const mapped = rows.map(r => ({
+    phone: r.phone,
+    salary: r.salary||0,
+    expense: r.expense||0,
+    overtime: r.overtime_hours||0,
+    leave: r.leave_hours||0,
+    target_income: r.target_income||0,
+    max_expense_percent: r.max_expense_percent||0,
+    max_expense_value: r.max_expense_value||0,
+    net: (r.salary||0) + ((r.overtime_hours||0) * ((r.salary||0)/220 || 0)) - (r.expense||0),
+    expensePct: (r.salary? (r.expense||0)/(r.salary||1)*100 : 0)
+  }));
+  render(mapped);
+});
+fetchStats();
+
+let msgTimer; let idx=0; let items=[];
+function buildMessages(data){
+  const out = [];
+  data.forEach(r=>{
+    out.push(`📈 ${r.phone}: Salário ${fmt(r.salary)} | Gastos ${fmt(r.expense)} (${r.expensePct.toFixed(1)}%)`);
+    out.push(`⏱️ ${r.phone}: Horas extra ${r.overtime.toFixed(1)}h | Folgas ${r.leave}`);
+    out.push(`${r.net>=0?'😁':'🥲'} ${r.phone}: Saldo ${fmt(r.net)}`);
+  });
+  items = out.length?out:['Sem dados ainda.']; idx=0;
+  const el = document.getElementById('msgs');
+  el.textContent = items[0];
+  if (msgTimer) clearInterval(msgTimer);
+  msgTimer = setInterval(()=>{ idx = (idx+1)%items.length; el.textContent = items[idx]; }, 3000);
+}
+</script>
+</body>
+</html>
