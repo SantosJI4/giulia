@@ -42,7 +42,7 @@ function createClient() {
         'https://raw.githubusercontent.com/adiwajshing/whatsapp-web.js/refs/heads/main/src/whatsapp-web-version.json'
     },
     puppeteer: {
-      headless: true,
+      headless: 'new',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -69,6 +69,7 @@ function createClient() {
   return c;
 }
 
+let recreateAttempts = 0;
 async function recreateClient(delayMs = 2000) {
   clientReady = false;
   try {
@@ -76,15 +77,21 @@ async function recreateClient(delayMs = 2000) {
       await client.destroy().catch(() => {});
     }
   } catch {}
+  const backoff = Math.min(30000, delayMs * Math.max(1, ++recreateAttempts));
   setTimeout(() => {
     try {
       console.log('Recriando cliente WhatsApp...');
       client = createClient();
-      client.initialize();
+      client.initialize().catch((e) => {
+        console.error('Falha na inicialização do cliente:', e?.message || e);
+        // Tenta novamente com backoff
+        recreateClient(backoff);
+      });
     } catch (e) {
       console.error('Falha ao recriar cliente:', e?.message || e);
+      recreateClient(backoff);
     }
-  }, delayMs);
+  }, backoff);
 }
 
 function bindClientEvents(c) {
@@ -173,7 +180,10 @@ function bindClientEvents(c) {
 
 // Criar e inicializar o primeiro cliente
 client = createClient();
-client.initialize();
+client.initialize().catch((e) => {
+  console.error('Falha ao inicializar cliente:', e?.message || e);
+  recreateClient(2000);
+});
 
 app.get('/api/qr', (req, res) => {
   if (clientReady) return res.json({ status: 'ready' });
@@ -190,7 +200,6 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor ativo em http://localhost:${PORT}`));
 app.get('/api/stats', async (req, res) => {
   try {
     const rows = await getAllUsersTotals();
@@ -260,3 +269,21 @@ function listenWithFallback(port) {
   server.listen(port, () => console.log(`Servidor ativo em http://localhost:${port}`));
 }
 listenWithFallback(basePort);
+
+// Evitar que erros não tratados derrubem o processo; loga e tenta reciclar
+process.on('unhandledRejection', (reason) => {
+  try {
+    const msg = (reason && reason.message) ? reason.message : String(reason);
+    console.error('unhandledRejection:', msg);
+    if (/Execution context was destroyed|Target closed|Protocol error/i.test(msg)) {
+      recreateClient(3000);
+    }
+  } catch {}
+});
+process.on('uncaughtException', (err) => {
+  const msg = err?.message || String(err || 'erro desconhecido');
+  console.error('uncaughtException:', msg);
+  if (/Execution context was destroyed|Target closed|Protocol error/i.test(msg)) {
+    recreateClient(3000);
+  }
+});
