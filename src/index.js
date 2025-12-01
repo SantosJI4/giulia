@@ -85,6 +85,20 @@ client.on('auth_failure', (msg) => {
   console.error('Falha de autenticação:', msg);
 });
 
+// Reinitialize on generic client errors (e.g., Puppeteer context destroyed)
+client.on('error', (err) => {
+  console.error('Erro no cliente WhatsApp:', err?.message || err);
+  clientReady = false;
+  setTimeout(() => {
+    try {
+      console.log('Tentando reinicializar cliente após erro...');
+      client.initialize();
+    } catch (e) {
+      console.error('Falha ao reinicializar cliente:', e?.message || e);
+    }
+  }, 3000);
+});
+
 client.on('message', async msg => {
   try {
     const phone = msg.from.split('@')[0];
