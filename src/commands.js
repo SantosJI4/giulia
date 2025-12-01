@@ -1,6 +1,6 @@
 import moment from 'moment';
 import PDFDocument from 'pdfkit';
-import { ensureUser, addEntry, updateSalary, getTotals, getLastTwoSalaries, setGoal, getGoal, getEntries, getMonthlyTotals, setExpensePercent, setExpenseValue, getAlertConfig, setMonthlySalary, getMonthlyOvertimeByDay, getMonthlyLeaves, addWorkedDay, getLeaveBank, getMonthlyWorkdays, setCategoryLimit, getCategoryLimit, getAllCategoryLimits, setNotifications, setSheetsId, getUser } from './db.js';
+import { ensureUser, addEntry, updateSalary, getTotals, getLastTwoSalaries, setGoal, getGoal, getEntries, getMonthlyTotals, setExpensePercent, setExpenseValue, getAlertConfig, setMonthlySalary, getMonthlyOvertimeByDay, getMonthlyLeaves, addWorkedDay, getLeaveBank, getMonthlyWorkdays, setCategoryLimit, getCategoryLimit, getAllCategoryLimits, setNotifications, setSheetsId, getUser, setUserPrefs, getUserPrefs, setMorningBriefPrefs, getMorningBriefPrefs, addCryptoSymbol, removeCryptoSymbol, getCryptoWatchlist } from './db.js';
 import { emitUpdate } from './events.js';
 import { exportToSheets } from './sheets.js';
 import { predictNextMonth, getCategoryBreakdown, getHistoricalData } from './analytics.js';
@@ -130,7 +130,15 @@ function handleHelp() {
   return [
     '🧠 Comandos disponíveis:',
     '',
-    '💰 Finanças:',
+    '💬 Você pode usar linguagem natural, exemplos:',
+    '  • "salario 4500"',
+    '  • "gastei 25 almoço #refeicao"',
+    '  • "hora extra 2 2025-12-01"',
+    '  • "folga 2025-12-02"',
+    '  • "trabalhei hoje"',
+    '  • "meta 6000"',
+    '',
+    '💰 Finanças (syntaxe clássica):',
     '!salario VALOR',
     '!gasto VALOR DESCRIÇÃO [#categoria]',
     '!horaextra HORAS [AAAA-MM-DD]',
@@ -153,13 +161,25 @@ function handleHelp() {
     '!notificar diaria|semanal sim|nao',
     '!limite_categoria CATEGORIA VALOR',
     '!limites',
+    '!idioma pt|en',
+    '!preferencias',
+    '!hora_notificar HORA(0-23)',
+    '!insight sim|nao',
+    '!briefing sim|nao',
+    '!briefing_hora HORA',
+    '!addcripto SYMBOL',
+    '!rmcripto SYMBOL',
+    '!lista_cripto',
     '',
     '📤 Exportação:',
     '!exportcsv',
     '!exportpdf',
     '!exportar_sheets SHEETS_ID',
     '',
-    '!ajuda'
+    '!ajuda',
+    '!menu (versão com botões)',
+    '',
+    '❓ Se algo não for reconhecido, tente simplificar a frase ou usar o formato clássico.'
   ].join('\n');
 }
 
@@ -187,6 +207,16 @@ export async function dispatchCommand(phone, text) {
     case '!previsao': return handlePrediction(phone);
     case '!historico': return handleHistorical(phone, parts);
     case '!exportar_sheets': return handleExportSheets(phone, parts);
+    case '!idioma': return handleLanguage(phone, parts);
+    case '!preferencias': return handlePrefs(phone);
+    case '!hora_notificar': return handleNotifyHour(phone, parts);
+    case '!insight': return handleInsightToggle(phone, parts);
+    case '!briefing': return handleBriefingToggle(phone, parts);
+    case '!briefing_hora': return handleBriefingHour(phone, parts);
+    case '!addcripto': return handleAddCrypto(phone, parts);
+    case '!rmcripto': return handleRemoveCrypto(phone, parts);
+    case '!lista_cripto': return handleListCrypto(phone);
+    case '!menu': return handleMenu();
     case '!ajuda': return handleHelp();
     default: return '❓ Comando não reconhecido. Use !ajuda';
   }
@@ -415,5 +445,112 @@ async function handleExportSheets(phone, parts) {
   } catch (e) {
     return `⚠️ Erro ao exportar: ${e.message}`;
   }
+}
+
+async function handleLanguage(phone, parts) {
+  if (parts.length < 2) return '⚠️ Use: !idioma pt|en';
+  const lang = parts[1].toLowerCase();
+  if (!['pt','en'].includes(lang)) return '⚠️ Idioma inválido. Use pt ou en.';
+  await ensureUser(phone);
+  await setUserPrefs(phone, { language: lang });
+  return `🌐 Idioma definido para ${lang === 'pt' ? 'Português' : 'English'}.`;
+}
+
+async function handlePrefs(phone) {
+  await ensureUser(phone);
+  const prefs = await getUserPrefs(phone);
+  const brief = await getMorningBriefPrefs(phone);
+  const watch = await getCryptoWatchlist(phone);
+  return [
+    '⚙️ Preferências:',
+    `Idioma: ${prefs.language}`,
+    `Timezone: ${prefs.timezone}`,
+    `Hora notificações padrão: ${prefs.notify_hour}h`,
+    `Insights semanais: ${prefs.insight_enabled ? 'ativados' : 'desativados'}`,
+    `Briefing de mercado: ${brief.morning_brief_enabled ? 'ativado' : 'desativado'} às ${brief.morning_brief_hour}h`,
+    `Criptos: ${watch.length ? watch.join(', ') : 'nenhuma'}`,
+    '',
+    'Alterar idioma: !idioma pt|en',
+    'Alterar hora diária: !hora_notificar HORA',
+    'Ativar/desativar insights: !insight sim|nao'
+  ].join('\n');
+}
+
+async function handleNotifyHour(phone, parts) {
+  if (parts.length < 2) return '⚠️ Use: !hora_notificar HORA(0-23)';
+  const raw = parseInt(parts[1], 10);
+  if (isNaN(raw) || raw < 0 || raw > 23) return '⚠️ Hora inválida. Use 0-23.';
+  await ensureUser(phone);
+  await setUserPrefs(phone, { notify_hour: raw });
+  return `⏰ Hora das notificações diárias ajustada para ${raw}:00.`;
+}
+
+async function handleInsightToggle(phone, parts) {
+  if (parts.length < 2) return '⚠️ Use: !insight sim|nao';
+  const flag = parts[1].toLowerCase();
+  if (!['sim','nao'].includes(flag)) return '⚠️ Valor inválido. Use sim ou nao.';
+  await ensureUser(phone);
+  await setUserPrefs(phone, { insight_enabled: flag === 'sim' ? 1 : 0 });
+  return flag === 'sim' ? '🧠 Insights semanais ativados.' : '🧠 Insights semanais desativados.';
+}
+
+async function handleBriefingToggle(phone, parts) {
+  if (parts.length < 2) return '⚠️ Use: !briefing sim|nao';
+  const flag = parts[1].toLowerCase();
+  if (!['sim','nao'].includes(flag)) return '⚠️ Valor inválido.';
+  await ensureUser(phone);
+  await setMorningBriefPrefs(phone, { enabled: flag === 'sim' ? 1 : 0 });
+  return flag === 'sim' ? '📈 Briefing diário ativado.' : '📉 Briefing diário desativado.';
+}
+
+async function handleBriefingHour(phone, parts) {
+  if (parts.length < 2) return '⚠️ Use: !briefing_hora HORA';
+  const h = parseInt(parts[1],10);
+  if (isNaN(h) || h < 0 || h > 23) return '⚠️ Hora inválida.';
+  await ensureUser(phone);
+  await setMorningBriefPrefs(phone, { hour: h });
+  return `⏰ Briefing diário agendado para ${h}:00.`;
+}
+
+async function handleAddCrypto(phone, parts) {
+  if (parts.length < 2) return '⚠️ Use: !addcripto SYMBOL';
+  const symbol = parts[1].toUpperCase();
+  if (!/^[A-Z0-9]{2,10}$/.test(symbol)) return '⚠️ Símbolo inválido.';
+  await ensureUser(phone);
+  await addCryptoSymbol(phone, symbol);
+  return `🪙 Cripto adicionada à sua lista: ${symbol}`;
+}
+
+async function handleRemoveCrypto(phone, parts) {
+  if (parts.length < 2) return '⚠️ Use: !rmcripto SYMBOL';
+  const symbol = parts[1].toUpperCase();
+  await ensureUser(phone);
+  await removeCryptoSymbol(phone, symbol);
+  return `🧹 Cripto removida: ${symbol}`;
+}
+
+async function handleListCrypto(phone) {
+  await ensureUser(phone);
+  const list = await getCryptoWatchlist(phone);
+  if (!list.length) return '🪙 Nenhuma cripto na sua lista. Use !addcripto BTC';
+  return '🪙 Sua lista de criptos: ' + list.join(', ');
+}
+
+function handleMenu() {
+  // Retorna estrutura para index.js montar botões.
+  return {
+    kind: 'buttons',
+    text: 'Menu rápido – escolha uma categoria:',
+    buttons: [
+      { body: 'Saldo / Relatório', command: '!relatorio' },
+      { body: 'Registrar Salário', command: '!ajuda salario' },
+      { body: 'Registrar Gasto', command: '!ajuda gasto' },
+      { body: 'Horas Extra', command: '!horaextra 1' },
+      { body: 'Meta', command: '!meta 5000' },
+      { body: 'Categorias', command: '!categorias' },
+      { body: 'Previsão', command: '!previsao' },
+      { body: 'Exportar CSV', command: '!exportcsv' }
+    ]
+  };
 }
 

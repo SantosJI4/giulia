@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import { initDb } from './db.js';
 import { dispatchCommand } from './commands.js';
 import whatsapp from 'whatsapp-web.js';
-const { MessageMedia, Client, LocalAuth } = whatsapp;
+const { MessageMedia, Client, LocalAuth, Buttons } = whatsapp;
 import qrcode from 'qrcode';
 import qrcodeTerminal from 'qrcode-terminal';
 // Client and LocalAuth imported from whatsapp default export above
@@ -18,6 +18,8 @@ const __dirname = path.dirname(__filename);
 import { onUpdate } from './events.js';
 import { getAllUsersTotals, initDbMonthly } from './db.js';
 import { initScheduler } from './scheduler.js';
+import { setClient as setQueueClient, enqueueMessage } from './messageQueue.js';
+import interpret, { suggest } from './nlu.js';
 initDb();
 initDbMonthly();
 
@@ -115,6 +117,7 @@ function bindClientEvents(c) {
     console.log('Bot conectado e pronto!');
     initScheduler(c);
     console.log('Agendador de notificações iniciado.');
+    setQueueClient(c);
   });
 
   c.on('disconnected', (reason) => {
@@ -160,20 +163,51 @@ function bindClientEvents(c) {
     try {
       const phone = msg.from.split('@')[0];
       const body = msg.body.trim();
-      if (body.startsWith('!')) {
-        const response = await dispatchCommand(phone, body);
+      // Tenta interpretar natural language
+      let commandText = body.startsWith('!') ? body : interpret(body);
+      // Mapeamento de texto de botões (labels -> comandos padrão)
+      if (!commandText) {
+        const lower = body.toLowerCase();
+        const buttonMap = [
+          { match: /saldo|relat/i, cmd: '!relatorio' },
+          { match: /sal[aá]rio|registrar sal/i, cmd: '!ajuda salario' },
+          { match: /gasto|despesa|registrar gasto/i, cmd: '!ajuda gasto' },
+          { match: /hora ?extra/i, cmd: '!horaextra 1' },
+          { match: /meta/i, cmd: '!meta 5000' },
+          { match: /categorias/i, cmd: '!categorias' },
+          { match: /previs[aã]o|forecast/i, cmd: '!previsao' },
+          { match: /export.*csv|csv/i, cmd: '!exportcsv' }
+        ];
+        const found = buttonMap.find(b => b.match.test(lower));
+        if (found) commandText = found.cmd;
+      }
+      if (commandText) {
+        const response = await dispatchCommand(phone, commandText);
         if (typeof response === 'string') {
-          await msg.reply(response);
+          // Enfileira resposta para maior resiliência em caso de desconexões
+          enqueueMessage(msg.from, response);
         } else if (response && response.media) {
           const media = new MessageMedia(response.mimetype, response.data, response.filename);
           await msg.reply(media, undefined, { caption: response.caption });
+        } else if (response && response.kind === 'buttons') {
+          // Constrói botões usando whatsapp-web.js
+          const btnDefs = response.buttons.map(b => ({ body: b.body }));
+          const buttonsMsg = new Buttons(response.text, btnDefs, 'Bot Giulia', 'Selecione');
+          await msg.reply(buttonsMsg);
         } else {
-          await msg.reply('⚠️ Resposta desconhecida.');
+          enqueueMessage(msg.from, '⚠️ Resposta desconhecida.');
+        }
+      } else if (/ajuda|help|comando/i.test(body)) {
+        enqueueMessage(msg.from, 'Use linguagem natural: exemplo "gastei 25 almoço" ou "salario 4500". Para lista completa digite !ajuda');
+      } else {
+        const hints = suggest(body);
+        if (hints && hints.length) {
+          enqueueMessage(msg.from, '❓ Não entendi. Sugestões:\n' + hints.join('\n'));
         }
       }
     } catch (e) {
       console.error('Erro ao processar mensagem', e);
-      msg.reply('⚠️ Ocorreu um erro interno. Tente novamente.');
+      enqueueMessage(msg.from, '⚠️ Ocorreu um erro interno. Tente novamente.');
     }
   });
 }

@@ -25,6 +25,14 @@ export function initDb() {
       notify_daily INTEGER DEFAULT 0,
       notify_weekly INTEGER DEFAULT 0,
       sheets_id TEXT,
+      language TEXT DEFAULT 'pt',
+      timezone TEXT DEFAULT 'America/Sao_Paulo',
+      notify_hour INTEGER DEFAULT 8,
+      insight_enabled INTEGER DEFAULT 1,
+      last_daily_sent TEXT,
+      last_insight_sent TEXT,
+      morning_brief_enabled INTEGER DEFAULT 0,
+      morning_brief_hour INTEGER DEFAULT 8,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`);
 
@@ -54,6 +62,19 @@ export function initDb() {
     db.run('ALTER TABLE users ADD COLUMN notify_daily INTEGER DEFAULT 0', err => {});
     db.run('ALTER TABLE users ADD COLUMN notify_weekly INTEGER DEFAULT 0', err => {});
     db.run('ALTER TABLE users ADD COLUMN sheets_id TEXT', err => {});
+    db.run("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'pt'", err => {});
+    db.run("ALTER TABLE users ADD COLUMN timezone TEXT DEFAULT 'America/Sao_Paulo'", err => {});
+    db.run('ALTER TABLE users ADD COLUMN notify_hour INTEGER DEFAULT 8', err => {});
+    db.run('ALTER TABLE users ADD COLUMN insight_enabled INTEGER DEFAULT 1', err => {});
+    db.run('ALTER TABLE users ADD COLUMN last_daily_sent TEXT', err => {});
+    db.run('ALTER TABLE users ADD COLUMN last_insight_sent TEXT', err => {});
+    db.run('ALTER TABLE users ADD COLUMN morning_brief_enabled INTEGER DEFAULT 0', err => {});
+    db.run('ALTER TABLE users ADD COLUMN morning_brief_hour INTEGER DEFAULT 8', err => {});
+    db.run(`CREATE TABLE IF NOT EXISTS user_crypto_watchlist (
+      phone TEXT,
+      symbol TEXT,
+      PRIMARY KEY (phone, symbol)
+    )`);
     // Backfill for older DBs
     db.run('ALTER TABLE entries ADD COLUMN event_date TEXT', err => {});
     db.run('ALTER TABLE entries ADD COLUMN category TEXT', err => {});
@@ -66,6 +87,117 @@ export function getUser(phone) {
   return new Promise((resolve, reject) => {
     db.get('SELECT * FROM users WHERE phone = ?', [phone], (err, row) => {
       if (err) reject(err); else resolve(row);
+      db.close();
+    });
+  });
+}
+
+export function setUserPrefs(phone, { language, timezone, notify_hour, insight_enabled }) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    const fields = [];
+    const values = [];
+    if (language) { fields.push('language=?'); values.push(language); }
+    if (timezone) { fields.push('timezone=?'); values.push(timezone); }
+    if (typeof notify_hour === 'number') { fields.push('notify_hour=?'); values.push(notify_hour); }
+    if (typeof insight_enabled === 'number') { fields.push('insight_enabled=?'); values.push(insight_enabled); }
+    if (typeof notify_hour === 'number' && (notify_hour < 0 || notify_hour > 23)) {
+      db.close();
+      return reject(new Error('notify_hour inválido'));
+    }
+    if (!fields.length) { db.close(); return resolve(); }
+    values.push(phone);
+    db.run(`UPDATE users SET ${fields.join(', ')} WHERE phone=?`, values, err => {
+      if (err) reject(err); else resolve();
+      db.close();
+    });
+  });
+}
+
+export function setMorningBriefPrefs(phone, { enabled, hour }) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    const fields = [];
+    const values = [];
+    if (typeof enabled === 'number') { fields.push('morning_brief_enabled=?'); values.push(enabled); }
+    if (typeof hour === 'number') {
+      if (hour < 0 || hour > 23) { db.close(); return reject(new Error('hora inválida')); }
+      fields.push('morning_brief_hour=?'); values.push(hour);
+    }
+    if (!fields.length) { db.close(); return resolve(); }
+    values.push(phone);
+    db.run(`UPDATE users SET ${fields.join(', ')} WHERE phone=?`, values, err => {
+      if (err) reject(err); else resolve();
+      db.close();
+    });
+  });
+}
+
+export function getMorningBriefPrefs(phone) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.get('SELECT morning_brief_enabled, morning_brief_hour FROM users WHERE phone=?', [phone], (err, row) => {
+      if (err) reject(err); else resolve(row || { morning_brief_enabled: 0, morning_brief_hour: 8 });
+      db.close();
+    });
+  });
+}
+
+export function addCryptoSymbol(phone, symbol) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.run('INSERT OR IGNORE INTO user_crypto_watchlist(phone,symbol) VALUES(?,?)', [phone, symbol.toUpperCase()], err => {
+      if (err) reject(err); else resolve();
+      db.close();
+    });
+  });
+}
+
+export function removeCryptoSymbol(phone, symbol) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.run('DELETE FROM user_crypto_watchlist WHERE phone=? AND symbol=?', [phone, symbol.toUpperCase()], err => {
+      if (err) reject(err); else resolve();
+      db.close();
+    });
+  });
+}
+
+export function getCryptoWatchlist(phone) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.all('SELECT symbol FROM user_crypto_watchlist WHERE phone=? ORDER BY symbol', [phone], (err, rows) => {
+      if (err) reject(err); else resolve(rows.map(r => r.symbol));
+      db.close();
+    });
+  });
+}
+
+export function getUserPrefs(phone) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.get('SELECT language, timezone, notify_hour, insight_enabled FROM users WHERE phone=?', [phone], (err, row) => {
+      if (err) reject(err); else resolve(row || { language: 'pt', timezone: 'America/Sao_Paulo', notify_hour: 8, insight_enabled: 1 });
+      db.close();
+    });
+  });
+}
+
+export function markDailySent(phone) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.run('UPDATE users SET last_daily_sent = DATE("now") WHERE phone=?', [phone], err => {
+      if (err) reject(err); else resolve();
+      db.close();
+    });
+  });
+}
+
+export function markInsightSent(phone) {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.run('UPDATE users SET last_insight_sent = DATE("now") WHERE phone=?', [phone], err => {
+      if (err) reject(err); else resolve();
       db.close();
     });
   });
@@ -114,6 +246,29 @@ export function getTotals(phone) {
         if (r.type === 'expense') totals.expense = r.total_amount || 0;
         if (r.type === 'overtime') totals.overtime_hours = r.total_hours || 0;
         if (r.type === 'leave') totals.leave = r.total_hours || 0; // using hours as count for leaves if needed
+      });
+      db.close();
+      resolve(totals);
+    });
+  });
+}
+
+export function getTotalsRange(phone, startDateISO, endDateISO) {
+  // Datas inclusivas, formato YYYY-MM-DD
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    const sql = `SELECT type, SUM(amount) AS total_amount, SUM(hours) AS total_hours
+                 FROM entries
+                 WHERE phone=? AND DATE(COALESCE(event_date, created_at)) BETWEEN DATE(?) AND DATE(?)
+                 GROUP BY type`;
+    db.all(sql, [phone, startDateISO, endDateISO], (err, rows) => {
+      if (err) { reject(err); db.close(); return; }
+      const totals = { salary: 0, expense: 0, overtime_hours: 0, leave: 0 };
+      rows.forEach(r => {
+        if (r.type === 'salary') totals.salary = r.total_amount || 0;
+        if (r.type === 'expense') totals.expense = r.total_amount || 0;
+        if (r.type === 'overtime') totals.overtime_hours = r.total_hours || 0;
+        if (r.type === 'leave') totals.leave = r.total_hours || 0;
       });
       db.close();
       resolve(totals);
