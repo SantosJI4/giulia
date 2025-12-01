@@ -48,8 +48,17 @@ async function fetchQR() {
     status.textContent = 'Bot conectado!';
     if (timer) clearInterval(timer);
   } else if (data.status === 'scan') {
-    area.innerHTML = `<img src="${data.dataUrl}" alt="QR Code" />`;
+    area.innerHTML = `<img src="${data.dataUrl}" alt="QR Code" />\n<p><a href="/qr.png" download id="dl">Baixar QR como PNG</a></p>`;
     status.textContent = 'Escaneie com seu WhatsApp';
+    // Auto-download the PNG every time it updates
+    try {
+      const a = document.createElement('a');
+      a.href = '/qr.png';
+      a.download = 'qr.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {}
   } else if (data.status === 'pending') {
     area.innerHTML = '<div class="pulse">Gerando QR...</div>';
     status.textContent = 'Aguardando geração do QR';
